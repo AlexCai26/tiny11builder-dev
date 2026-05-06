@@ -1,13 +1,19 @@
 ﻿param (
-    [ValidatePattern('^[c-zC-Z]$')]
-    [string]$ScratchDisk
+    [string]$ScratchDisk,
+    [switch]$EnableClearScreen
 )
 
-if (-not $ScratchDisk) {
-    $ScratchDisk = $PSScriptRoot -replace '[\\]+$', ''
+if ([string]::IsNullOrWhiteSpace($ScratchDisk)) {
+    $scratchInputPath = $PSScriptRoot
+}
+elseif ($ScratchDisk -match '^[c-zC-Z]$') {
+    $scratchInputPath = "$($ScratchDisk):\"
+}
+elseif ($ScratchDisk -match '^[c-zC-Z]:$') {
+    $scratchInputPath = "$ScratchDisk\"
 }
 else {
-    $ScratchDisk = $ScratchDisk + ":"
+    $scratchInputPath = $ScratchDisk
 }
 
 function Get-ValidImageIndex {
@@ -16,17 +22,66 @@ function Get-ValidImageIndex {
         [string]$ImagePath
     )
 
-    $imageIndexes = (Get-WindowsImage -ImagePath $ImagePath).ImageIndex
-    $selectedIndex = $null
-    while ($imageIndexes -notcontains $selectedIndex) {
-        Get-WindowsImage -ImagePath $ImagePath
-        $selectedIndex = Read-Host "Please enter the image index"
+    $imageList = Get-WindowsImage -ImagePath $ImagePath
+    if (-not $imageList) {
+        throw "No images found in $ImagePath"
     }
 
-    return $selectedIndex
+    Write-Host ""
+    Write-Host "Available image indexes:"
+    $imageList |
+    Select-Object ImageIndex, ImageName, Architecture, Version |
+    Format-Table -AutoSize |
+    Out-Host
+
+    $imageIndexes = $imageList.ImageIndex | ForEach-Object { [string]$_ }
+    $selectedIndex = ""
+    while ($imageIndexes -notcontains $selectedIndex) {
+        $selectedIndex = (Read-Host "Please enter the image index").Trim()
+        if ($imageIndexes -notcontains $selectedIndex) {
+            Write-Host "Invalid index. Please choose one from the list above." -ForegroundColor Yellow
+        }
+    }
+
+    return [int]$selectedIndex
 }
 
-Write-Output "Scratch disk set to $ScratchDisk"
+function Invoke-SafeClearHost {
+    if ($EnableClearScreen) {
+        Clear-Host
+    }
+}
+
+function Initialize-ConsoleEncoding {
+    try {
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [Console]::InputEncoding = $utf8NoBom
+        [Console]::OutputEncoding = $utf8NoBom
+        $script:OutputEncoding = $utf8NoBom
+        $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+        cmd /c chcp 65001 > $null 2>&1
+        Write-Host "Console encoding set to UTF-8 (code page 65001)."
+    }
+    catch {
+        Write-Host "WARNING: Failed to set UTF-8 console encoding: $_" -ForegroundColor Yellow
+    }
+}
+
+function Get-AbsolutePath {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$PathValue
+    )
+    return [System.IO.Path]::GetFullPath($PathValue)
+}
+
+$scratchRoot = Get-AbsolutePath -PathValue $scratchInputPath
+$tiny11RootPath = Get-AbsolutePath -PathValue (Join-Path $scratchRoot "tiny11")
+$scratchMountPath = Get-AbsolutePath -PathValue (Join-Path $scratchRoot "scratchdir")
+$ScratchDisk = $scratchRoot
+
+Initialize-ConsoleEncoding
+Write-Output "Scratch disk set to $scratchRoot"
 
 # Check if PowerShell execution is restricted
 if ((Get-ExecutionPolicy) -eq 'Restricted') {
@@ -57,6 +112,9 @@ if (! $myWindowsPrincipal.IsInRole($adminRole)) {
     if ($PSBoundParameters.ContainsKey('ScratchDisk')) {
         $elevationArgs += @('-ScratchDisk', $PSBoundParameters['ScratchDisk'])
     }
+    if ($PSBoundParameters.ContainsKey('EnableClearScreen')) {
+        $elevationArgs += '-EnableClearScreen'
+    }
     $newProcess = new-object System.Diagnostics.ProcessStartInfo "PowerShell";
     $newProcess.Arguments = $elevationArgs -join ' ';
     $newProcess.Verb = "runas";
@@ -68,7 +126,7 @@ $isoFileName = "tiny11-dev-$isoTimestamp.iso"
 Start-Transcript -Path "$PSScriptRoot\$isoFileName.log" 
 
 $Host.UI.RawUI.WindowTitle = "Tiny11 Dev Edition - Image Creator"
-Clear-Host
+Invoke-SafeClearHost
 Write-Host "Welcome to the tiny11 Dev Edition image creator! Release: 01-05-26"
 Write-Host "============================================================================"
 Write-Host "This version retains the following components for developers:"
@@ -120,8 +178,8 @@ foreach ($hive in $hives) {
 }
 
 # Check for mounted WIM and temp folders
-$scratchPath = "$ScratchDisk\scratchdir"
-$tiny11Path = "$ScratchDisk\tiny11"
+$scratchPath = $scratchMountPath
+$tiny11Path = $tiny11RootPath
 $hasScratch = Test-Path $scratchPath
 $hasTiny11 = Test-Path $tiny11Path
 
@@ -197,7 +255,10 @@ else {
 }
 
 $hostArchitecture = $Env:PROCESSOR_ARCHITECTURE
-New-Item -ItemType Directory -Force -Path "$ScratchDisk\tiny11\sources" | Out-Null
+Write-Host "Working paths:"
+Write-Host "  - Tiny11 workspace: $tiny11RootPath"
+Write-Host "  - WIM mount path: $scratchMountPath"
+New-Item -ItemType Directory -Force -Path "$tiny11RootPath\sources" | Out-Null
 do {
     $DriveLetter = Read-Host "Please enter the drive letter for the Windows 11 image"
     if ($DriveLetter -match '^[c-zC-Z]$') {
@@ -225,12 +286,12 @@ if ((Test-Path "$DriveLetter\sources\boot.wim") -eq $false -or (Test-Path "$Driv
 }
 
 Write-Host "Copying Windows image..."
-Copy-Item -Path "$DriveLetter\*" -Destination "$ScratchDisk\tiny11" -Recurse -Force | Out-Null
-Set-ItemProperty -Path "$ScratchDisk\tiny11\sources\install.esd" -Name IsReadOnly -Value $false > $null 2>&1
-Remove-Item "$ScratchDisk\tiny11\sources\install.esd" > $null 2>&1
+Copy-Item -Path "$DriveLetter\*" -Destination "$tiny11RootPath" -Recurse -Force | Out-Null
+Set-ItemProperty -Path "$tiny11RootPath\sources\install.esd" -Name IsReadOnly -Value $false > $null 2>&1
+Remove-Item "$tiny11RootPath\sources\install.esd" > $null 2>&1
 Write-Host "Copy complete!"
 Start-Sleep -Seconds 2
-Clear-Host
+Invoke-SafeClearHost
 Write-Host "Getting image information:"
 $index = Get-ValidImageIndex -ImagePath "$ScratchDisk\tiny11\sources\install.wim"
 Write-Host "Mounting Windows image. This may take a while."
@@ -367,7 +428,7 @@ foreach ($pkg in $wallpaperPackages) {
 Write-Host "Extended Wallpapers removed!"
 
 Start-Sleep -Seconds 2
-Clear-Host
+Invoke-SafeClearHost
 Write-Host "Loading registry..."
 reg load HKLM\zCOMPONENTS $ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS | Out-Null
 reg load HKLM\zDEFAULT $ScratchDisk\scratchdir\Windows\System32\config\default | Out-Null
@@ -941,12 +1002,16 @@ Write-Host "Cleanup complete."
 Write-Host ' '
 Write-Host "Unmounting image..."
 Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
+
+# Define source/destination paths once and keep log output absolute
+$sourceWim = Get-AbsolutePath -PathValue "$ScratchDisk\tiny11\sources\install.wim"
+$exportedWim = Get-AbsolutePath -PathValue "$ScratchDisk\tiny11\sources\install2.wim"
+
 Write-Host "Exporting image (Index: $index)..."
-Write-Host "Source: $ScratchDisk\tiny11\sources\install.wim"
-Write-Host "Destination: $ScratchDisk\tiny11\sources\install2.wim"
+Write-Host "Source: $sourceWim"
+Write-Host "Destination: $exportedWim"
 
 # Check source file exists and has content
-$sourceWim = "$ScratchDisk\tiny11\sources\install.wim"
 if (-not (Test-Path $sourceWim)) {
     Write-Error "ERROR: Source install.wim not found!"
     exit 1
@@ -979,7 +1044,6 @@ catch {
 }
 
 # Verify exported file size
-$exportedWim = "$ScratchDisk\tiny11\sources\install2.wim"
 if (-not (Test-Path $exportedWim)) {
     Write-Error "ERROR: Exported install2.wim not found!"
     exit 1
@@ -996,7 +1060,7 @@ Remove-Item -Path "$ScratchDisk\tiny11\sources\install.wim" -Force | Out-Null
 Rename-Item -Path "$ScratchDisk\tiny11\sources\install2.wim" -NewName "install.wim" | Out-Null
 Write-Host "Windows image completed. Continuing with boot.wim."
 Start-Sleep -Seconds 2
-Clear-Host
+Invoke-SafeClearHost
 Write-Host "Mounting boot image:"
 $wimFilePath = "$ScratchDisk\tiny11\sources\boot.wim" 
 & takeown "/F" $wimFilePath | Out-Null
@@ -1020,7 +1084,7 @@ reg unload HKLM\zSOFTWARE | Out-Null
 reg unload HKLM\zSYSTEM | Out-Null
 Write-Host "Unmounting image..."
 Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
-Clear-Host
+Invoke-SafeClearHost
 Write-Host "The tiny11 Dev Edition image is now completed. Proceeding with the making of the ISO..."
 Write-Host "Copying unattended file for bypassing MS account on OOBE..."
 Copy-Item -Path "$PSScriptRoot\autounattend-dev.xml" -Destination "$ScratchDisk\tiny11\autounattend.xml" -Force | Out-Null
@@ -1062,7 +1126,7 @@ else {
 Write-Host ""
 Write-Host "============================================================================" -ForegroundColor Green
 Write-Host "  ISO created: $isoFileName" -ForegroundColor Green
-Write-Host "  Location: $PSScriptRoot\$isoFileName" -ForegroundColor Green
+Write-Host "  Location: $(Get-AbsolutePath -PathValue "$PSScriptRoot\$isoFileName")" -ForegroundColor Green
 Write-Host "============================================================================" -ForegroundColor Green
 Write-Host ""
 

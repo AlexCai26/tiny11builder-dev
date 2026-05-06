@@ -6,8 +6,8 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | Dev Edition v1.8 |
-| 更新日期 | 2026-01-25 |
+| 版本 | Dev Edition v1.9 |
+| 更新日期 | 2026-05-06 |
 | 基于 | tiny11maker.ps1 |
 
 ---
@@ -21,6 +21,23 @@ powershell -ExecutionPolicy Bypass -File .\tiny11maker-dev-build.ps1
 # 指定工作磁盘
 powershell -ExecutionPolicy Bypass -File .\tiny11maker-dev-build.ps1 -ScratchDisk D
 ```
+
+---
+
+## 已验证源镜像 (最新)
+
+### Windows 11 Business Editions (25H2, Updated April 2026)
+
+| 项目 | 内容 |
+|------|------|
+| 完整名称 | Windows 11 (business editions), version 25H2 (updated April 2026) (x64) - DVD (Chinese-Simplified) |
+| 文件名 | `zh-cn_windows_11_business_editions_version_25h2_updated_april_2026_x64_dvd_a69989f0.iso` |
+| 语言 | zh-CN |
+| 架构 | x64 (amd64) |
+| 脚本验证日期 | 2026-05-06 |
+| 构建选择索引 | 3 (Windows 11 专业版) |
+
+> 注: 安装镜像包含多个索引（教育版/企业版/专业版/专业教育版/专业工作站版），脚本会先显示完整索引列表，再要求输入。
 
 ---
 
@@ -49,7 +66,7 @@ powershell -ExecutionPolicy Bypass -File .\tiny11maker-dev-build.ps1 -ScratchDis
 |------|------|
 | Edge 浏览器 | 前端调试、DevTools |
 | Edge WebView2 | 现代桌面应用依赖 |
-| Windows Update | 默认禁用，需要时可手动启用 |
+| Windows Update | 默认暂停，服务保留为手动启动，可随时恢复 |
 | 在线驱动安装 | 支持新硬件即插即用 |
 
 ### 2. 额外精简内容
@@ -150,7 +167,7 @@ powershell -ExecutionPolicy Bypass -File .\tiny11maker-dev-build.ps1 -ScratchDis
 
 ### 预装 AppX (30+)
 
-Clipchamp、Bing 新闻/天气、Xbox 应用、获取帮助、使用技巧、Office 中心、纸牌游戏、人脉、Power Automate、待办事项、闹钟时钟、邮件日历、反馈中心、地图、录音机、Xbox 相关 (4个)、手机连接、Groove 音乐、电影电视、家庭安全、快速助手、Teams、Cortana、Copilot、Outlook、微软电脑管家
+Clipchamp、Bing 新闻/搜索/天气、Xbox 应用、获取帮助、使用技巧、Office 中心、纸牌游戏、便签、人脉、Power Automate、待办事项、闹钟时钟、相机、反馈中心、地图、录音机、Xbox 相关 (含 Identity Provider)、手机连接、Groove 音乐、电影电视、家庭安全、快速助手、Teams、Cortana、Copilot、Outlook、Dev Home、微软电脑管家
 
 ### 保留的应用
 
