@@ -1,4 +1,4 @@
-﻿# Tiny11 Dev Edition
+﻿﻿# Tiny11 Dev Edition
 
 > 专为开发者设计的精简 Windows 11 镜像构建工具
 
@@ -138,7 +138,7 @@ powershell -ExecutionPolicy Bypass -File .\tiny11maker-dev-build.ps1 -ScratchDis
 
 ## Tiny11-Dev-Toolkit
 
-安装后桌面会放置工具包，包含 16 个注册表调整模块：
+安装后桌面会放置工具包，包含 16 个注册表调整模块，以及 1 个 PowerShell 常用系统功能指南目录：
 
 | # | 功能 | 文件 |
 |---|------|------|
@@ -158,8 +158,9 @@ powershell -ExecutionPolicy Bypass -File .\tiny11maker-dev-build.ps1 -ScratchDis
 | 14 | 文件资源管理器 | Developer.reg / Default.reg |
 | 15 | 窗口边框颜色 | Enable.reg / Disable.reg |
 | 16 | 额外服务优化 | Disable.reg / Enable.reg |
+| 附加 | PowerShell-HowTo | SMB1 / ExecutionPolicy / Telnet 等指南与脚本 |
 
-每个模块都附带 README.md 说明文档。
+每个模块都附带 README.md 说明文档；`PowerShell-HowTo` 提供可直接执行的 `.ps1` 示例脚本。
 
 ---
 

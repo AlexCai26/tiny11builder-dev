@@ -1,4 +1,4 @@
-﻿# Tiny11 Dev Edition 工具包
+# Tiny11 Dev Edition 工具包
 
 ## 关于
 
@@ -7,8 +7,8 @@
 ## 原始镜像信息
 
 - **原始镜像**: `[ISO_NAME_PLACEHOLDER]`
-- **生成脚本**: `tiny11maker-Dev.ps1`
-- **版本**: Dev Edition v1.8
+- **生成脚本**: `tiny11maker-dev-build.ps1`
+- **版本**: Dev Edition v1.9
 - **生成日期**: `[BUILD_DATE_PLACEHOLDER]`
 
 ## 与标准 Tiny11Maker 的主要区别
@@ -36,6 +36,14 @@
 - **Enable.reg / Add.reg** - 应用该调整
 - **Disable.reg / Remove.reg** - 撤销该调整
 - **README.md** - 详细说明
+
+### PowerShell-HowTo 文件夹
+
+此文件夹包含常见系统功能恢复与命令行工具启用指南：
+- **01-Enable-SMB1.ps1** - 通过 PowerShell 启用 SMB 1.0/CIFS Client
+- **02-Set-ExecutionPolicy.ps1** - 调整 PowerShell 默认执行策略
+- **03-Install-Common-Windows-Tools.ps1** - 安装 Telnet、TFTP、OpenSSH Client 等常见工具
+- **README.md** - 使用说明、适用场景与注意事项
 
 ### 如何使用 .reg 文件
 
@@ -69,6 +77,7 @@
 | 14 | 文件资源管理器配置 | 开发者模式 |
 | 15 | 窗口边框颜色 | 已启用 |
 | 16 | 额外服务优化 | 已禁用 |
+| 附加 | PowerShell-HowTo | 常用系统功能与工具命令指南 |
 
 ---
 
