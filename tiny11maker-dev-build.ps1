@@ -1,4 +1,4 @@
-﻿param (
+param (
     [string]$ScratchDisk,
     [switch]$EnableClearScreen
 )
@@ -78,6 +78,16 @@ function Get-AbsolutePath {
 $scratchRoot = Get-AbsolutePath -PathValue $scratchInputPath
 $tiny11RootPath = Get-AbsolutePath -PathValue (Join-Path $scratchRoot "tiny11")
 $scratchMountPath = Get-AbsolutePath -PathValue (Join-Path $scratchRoot "scratchdir")
+$installWimPath = Get-AbsolutePath -PathValue (Join-Path $tiny11RootPath "sources\install.wim")
+$exportInstallWimPath = Get-AbsolutePath -PathValue (Join-Path $tiny11RootPath "sources\install2.wim")
+$bootWimPath = Get-AbsolutePath -PathValue (Join-Path $tiny11RootPath "sources\boot.wim")
+$sysprepAutounattendPath = Get-AbsolutePath -PathValue (Join-Path $scratchMountPath "Windows\System32\Sysprep\autounattend.xml")
+$isoAutounattendPath = Get-AbsolutePath -PathValue (Join-Path $tiny11RootPath "autounattend.xml")
+$tasksRootPath = Get-AbsolutePath -PathValue (Join-Path $scratchMountPath "Windows\System32\Tasks")
+$toolkitSourcePath = Get-AbsolutePath -PathValue (Join-Path $PSScriptRoot "Tiny11-Dev-Toolkit")
+$defaultDesktopPath = Get-AbsolutePath -PathValue (Join-Path $scratchMountPath "Users\Default\Desktop")
+$toolkitDestPath = Get-AbsolutePath -PathValue (Join-Path $defaultDesktopPath "Tiny11-Dev-Toolkit")
+$autounattendSourcePath = Get-AbsolutePath -PathValue (Join-Path $PSScriptRoot "autounattend-dev.xml")
 $ScratchDisk = $scratchRoot
 
 Initialize-ConsoleEncoding
@@ -123,6 +133,7 @@ if (! $myWindowsPrincipal.IsInRole($adminRole)) {
 }
 $isoTimestamp = Get-Date -Format "yyyyMMdd_HHmm"
 $isoFileName = "tiny11-dev-$isoTimestamp.iso"
+$isoOutputPath = Get-AbsolutePath -PathValue (Join-Path $PSScriptRoot $isoFileName)
 Start-Transcript -Path "$PSScriptRoot\$isoFileName.log" 
 
 $Host.UI.RawUI.WindowTitle = "Tiny11 Dev Edition - Image Creator"
@@ -276,7 +287,7 @@ if ((Test-Path "$DriveLetter\sources\boot.wim") -eq $false -or (Test-Path "$Driv
         $index = Get-ValidImageIndex -ImagePath "$DriveLetter\sources\install.esd"
         Write-Host ' '
         Write-Host 'Converting install.esd to install.wim. This may take a while...'
-        Export-WindowsImage -SourceImagePath $DriveLetter\sources\install.esd -SourceIndex $index -DestinationImagePath $ScratchDisk\tiny11\sources\install.wim -Compressiontype Maximum -CheckIntegrity
+        Export-WindowsImage -SourceImagePath $DriveLetter\sources\install.esd -SourceIndex $index -DestinationImagePath $installWimPath -Compressiontype Maximum -CheckIntegrity
     }
     else {
         Write-Host "Can't find Windows OS Installation files in the specified Drive Letter.."
@@ -293,9 +304,9 @@ Write-Host "Copy complete!"
 Start-Sleep -Seconds 2
 Invoke-SafeClearHost
 Write-Host "Getting image information:"
-$index = Get-ValidImageIndex -ImagePath "$ScratchDisk\tiny11\sources\install.wim"
+$index = Get-ValidImageIndex -ImagePath $installWimPath
 Write-Host "Mounting Windows image. This may take a while."
-$wimFilePath = "$ScratchDisk\tiny11\sources\install.wim"
+$wimFilePath = $installWimPath
 & takeown "/F" $wimFilePath 
 & icacls $wimFilePath "/grant" "$($adminGroup.Value):(F)"
 try {
@@ -304,10 +315,10 @@ try {
 catch {
     
 }
-New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir" > $null
-Mount-WindowsImage -ImagePath $ScratchDisk\tiny11\sources\install.wim -Index $index -Path $ScratchDisk\scratchdir
+New-Item -ItemType Directory -Force -Path $scratchMountPath > $null
+Mount-WindowsImage -ImagePath $installWimPath -Index $index -Path $scratchMountPath
 
-$imageIntl = & dism /English /Get-Intl "/Image:$($ScratchDisk)\scratchdir"
+$imageIntl = & dism /English /Get-Intl "/Image:$scratchMountPath"
 $languageLine = $imageIntl -split '\n' | Where-Object { $_ -match 'Default system UI language : ([a-zA-Z]{2}-[a-zA-Z]{2})' }
 
 if ($languageLine) {
@@ -318,7 +329,7 @@ else {
     Write-Host "Default system UI language code not found."
 }
 
-$imageInfo = & 'dism' '/English' '/Get-WimInfo' "/wimFile:$($ScratchDisk)\tiny11\sources\install.wim" "/index:$index"
+$imageInfo = & 'dism' '/English' '/Get-WimInfo' "/wimFile:$installWimPath" "/index:$index"
 $lines = $imageInfo -split '\r?\n'
 
 foreach ($line in $lines) {
@@ -339,7 +350,7 @@ if (-not $architecture) {
 
 Write-Host "Mounting complete! Performing removal of applications..."
 
-$packages = & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Get-ProvisionedAppxPackages' |
+$packages = & 'dism' '/English' "/image:$scratchMountPath" '/Get-ProvisionedAppxPackages' |
 ForEach-Object {
     if ($_ -match 'PackageName : (.*)') {
         $matches[1]
@@ -361,7 +372,7 @@ $packagesToRemove = $packages | Where-Object {
 }
 foreach ($package in $packagesToRemove) {
     Write-Host "Removing: $package ..." -NoNewline
-    & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Remove-ProvisionedAppxPackage' "/PackageName:$package" | Out-Null
+    & 'dism' '/English' "/image:$scratchMountPath" '/Remove-ProvisionedAppxPackage' "/PackageName:$package" | Out-Null
     Write-Host " Done"
 }
 
@@ -381,14 +392,16 @@ Write-Host ""
 # Remove-Item -Path "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" -Recurse -Force | Out-Null
 
 Write-Host "Removing OneDrive:"
-& 'takeown' '/f' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" | Out-Null
-& 'icacls' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
-Remove-Item -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" -Force | Out-Null
+$system32OneDrivePath = Join-Path $scratchMountPath "Windows\System32\OneDriveSetup.exe"
+$syswow64OneDrivePath = Join-Path $scratchMountPath "Windows\SysWOW64\OneDriveSetup.exe"
+& 'takeown' '/f' $system32OneDrivePath | Out-Null
+& 'icacls' $system32OneDrivePath '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
+Remove-Item -Path $system32OneDrivePath -Force | Out-Null
 # Also remove SysWOW64 copy (prevents OneDrive auto-install for new users on 64-bit systems)
-if (Test-Path "$ScratchDisk\scratchdir\Windows\SysWOW64\OneDriveSetup.exe") {
-    & 'takeown' '/f' "$ScratchDisk\scratchdir\Windows\SysWOW64\OneDriveSetup.exe" | Out-Null
-    & 'icacls' "$ScratchDisk\scratchdir\Windows\SysWOW64\OneDriveSetup.exe" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
-    Remove-Item -Path "$ScratchDisk\scratchdir\Windows\SysWOW64\OneDriveSetup.exe" -Force | Out-Null
+if (Test-Path $syswow64OneDrivePath) {
+    & 'takeown' '/f' $syswow64OneDrivePath | Out-Null
+    & 'icacls' $syswow64OneDrivePath '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
+    Remove-Item -Path $syswow64OneDrivePath -Force | Out-Null
     Write-Host "OneDrive removed (System32 + SysWOW64)"
 } else {
     Write-Host "OneDrive removed (System32 only, SysWOW64 not found)"
@@ -397,8 +410,8 @@ if (Test-Path "$ScratchDisk\scratchdir\Windows\SysWOW64\OneDriveSetup.exe") {
 Write-Host "Removing Microsoft PC Manager:"
 # Remove PC Manager if present (typically in Program Files)
 $pcManagerPaths = @(
-    "$ScratchDisk\scratchdir\Program Files\Microsoft PC Manager",
-    "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft PC Manager"
+    (Join-Path $scratchMountPath "Program Files\Microsoft PC Manager"),
+    (Join-Path $scratchMountPath "Program Files (x86)\Microsoft PC Manager")
 )
 foreach ($path in $pcManagerPaths) {
     if (Test-Path $path) {
@@ -415,14 +428,14 @@ Write-Host "Removal complete!"
 # Dev Edition: Remove Extended Wallpapers to save disk space (~300-500MB)
 # ============================================================================
 Write-Host "Removing Extended Wallpapers to save disk space..."
-$wallpaperPackages = & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Get-Packages' | 
+$wallpaperPackages = & 'dism' '/English' "/image:$scratchMountPath" '/Get-Packages' | 
 Select-String -Pattern 'Microsoft-Windows-Wallpaper-Content-Extended' | 
 ForEach-Object { ($_ -split ':')[1].Trim() }
 
 foreach ($pkg in $wallpaperPackages) {
     if ($pkg) {
         Write-Host "Removing: $pkg"
-        & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Remove-Package' "/PackageName:$pkg" '/NoRestart' | Out-Null
+        & 'dism' '/English' "/image:$scratchMountPath" '/Remove-Package' "/PackageName:$pkg" '/NoRestart' | Out-Null
     }
 }
 Write-Host "Extended Wallpapers removed!"
@@ -430,13 +443,13 @@ Write-Host "Extended Wallpapers removed!"
 Start-Sleep -Seconds 2
 Invoke-SafeClearHost
 Write-Host "Loading registry..."
-reg load HKLM\zCOMPONENTS $ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS | Out-Null
-reg load HKLM\zDEFAULT $ScratchDisk\scratchdir\Windows\System32\config\default | Out-Null
-reg load HKLM\zNTUSER $ScratchDisk\scratchdir\Users\Default\ntuser.dat | Out-Null
-reg load HKLM\zSOFTWARE $ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE | Out-Null
-reg load HKLM\zSYSTEM $ScratchDisk\scratchdir\Windows\System32\config\SYSTEM | Out-Null
+reg load HKLM\zCOMPONENTS (Join-Path $scratchMountPath "Windows\System32\config\COMPONENTS") | Out-Null
+reg load HKLM\zDEFAULT (Join-Path $scratchMountPath "Windows\System32\config\default") | Out-Null
+reg load HKLM\zNTUSER (Join-Path $scratchMountPath "Users\Default\ntuser.dat") | Out-Null
+reg load HKLM\zSOFTWARE (Join-Path $scratchMountPath "Windows\System32\config\SOFTWARE") | Out-Null
+reg load HKLM\zSYSTEM (Join-Path $scratchMountPath "Windows\System32\config\SYSTEM") | Out-Null
 # Load UsrClass.dat for HKCU\Software\Classes settings (context menu, etc.)
-reg load HKLM\zUSRCLASS "$ScratchDisk\scratchdir\Users\Default\AppData\Local\Microsoft\Windows\UsrClass.dat" | Out-Null
+reg load HKLM\zUSRCLASS (Join-Path $scratchMountPath "Users\Default\AppData\Local\Microsoft\Windows\UsrClass.dat") | Out-Null
 Write-Host "Bypassing system requirements(on the system image):"
 & 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' '/v' 'SV1' '/t' 'REG_DWORD' '/d' '0' '/f' | Out-Null
 & 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' '/v' 'SV2' '/t' 'REG_DWORD' '/d' '0' '/f' | Out-Null
@@ -615,7 +628,7 @@ Write-Host "Disabling Sponsored Apps:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' '/v' 'DisableCloudOptimizedContent' '/t' 'REG_DWORD' '/d' '1' '/f' | Out-Null
 Write-Host "Enabling Local Accounts on OOBE:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\OOBE' '/v' 'BypassNRO' '/t' 'REG_DWORD' '/d' '1' '/f' | Out-Null
-Copy-Item -Path "$PSScriptRoot\autounattend-dev.xml" -Destination "$ScratchDisk\scratchdir\Windows\System32\Sysprep\autounattend.xml" -Force | Out-Null
+Copy-Item -Path $autounattendSourcePath -Destination $sysprepAutounattendPath -Force | Out-Null
 
 # ============================================================================
 # Dev Edition: Desktop files removed - Toolkit folder contains all needed tools
@@ -897,24 +910,17 @@ Write-Host "Online driver installation: Enabled (for hardware compatibility)"
 
 Write-Host "Windows Update configured: 800-day pause set from build date. Use Toolkit scripts to resume when needed."
 
-$tasksPath = "$ScratchDisk\scratchdir\Windows\System32\Tasks"
-
 Write-Host "Deleting scheduled task definition files..."
-
-# Application Compatibility Appraiser
-Remove-Item -Path "$tasksPath\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser" -Force -ErrorAction SilentlyContinue
-
-# Customer Experience Improvement Program (removes the entire folder and all tasks within it)
-Remove-Item -Path "$tasksPath\Microsoft\Windows\Customer Experience Improvement Program" -Recurse -Force -ErrorAction SilentlyContinue
-
-# Program Data Updater
-Remove-Item -Path "$tasksPath\Microsoft\Windows\Application Experience\ProgramDataUpdater" -Force -ErrorAction SilentlyContinue
-
-# Chkdsk Proxy
-Remove-Item -Path "$tasksPath\Microsoft\Windows\Chkdsk\Proxy" -Force -ErrorAction SilentlyContinue
-
-# Windows Error Reporting (QueueReporting)
-Remove-Item -Path "$tasksPath\Microsoft\Windows\Windows Error Reporting\QueueReporting" -Force -ErrorAction SilentlyContinue
+$scheduledTaskCleanupTargets = @(
+    @{ Path = (Join-Path $tasksRootPath "Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser"); Recurse = $false }
+    @{ Path = (Join-Path $tasksRootPath "Microsoft\Windows\Customer Experience Improvement Program"); Recurse = $true }
+    @{ Path = (Join-Path $tasksRootPath "Microsoft\Windows\Application Experience\ProgramDataUpdater"); Recurse = $false }
+    @{ Path = (Join-Path $tasksRootPath "Microsoft\Windows\Chkdsk\Proxy"); Recurse = $false }
+    @{ Path = (Join-Path $tasksRootPath "Microsoft\Windows\Windows Error Reporting\QueueReporting"); Recurse = $false }
+)
+foreach ($taskTarget in $scheduledTaskCleanupTargets) {
+    Remove-Item -Path $taskTarget.Path -Force -ErrorAction SilentlyContinue -Recurse:$taskTarget.Recurse
+}
 
 Write-Host "Task files have been deleted."
 
@@ -923,28 +929,24 @@ Write-Host "Task files have been deleted."
 # ============================================================================
 Write-Host "Copying Tiny11-Dev-Toolkit to default desktop..."
 
-$toolkitSource = "$PSScriptRoot\Tiny11-Dev-Toolkit"
-$defaultDesktop = "$ScratchDisk\scratchdir\Users\Default\Desktop"
-$toolkitDest = "$defaultDesktop\Tiny11-Dev-Toolkit"
-
-if (Test-Path $toolkitSource) {
+if (Test-Path $toolkitSourcePath) {
     # Create default desktop if not exists
-    New-Item -ItemType Directory -Force -Path $defaultDesktop | Out-Null
+    New-Item -ItemType Directory -Force -Path $defaultDesktopPath | Out-Null
     
     # Copy toolkit folder
-    Copy-Item -Path $toolkitSource -Destination $defaultDesktop -Recurse -Force
+    Copy-Item -Path $toolkitSourcePath -Destination $defaultDesktopPath -Recurse -Force
     
     # Copy the script itself into the toolkit (dynamically gets current script path)
     $currentScript = $MyInvocation.MyCommand.Path
     if (Test-Path $currentScript) {
-        Copy-Item -Path $currentScript -Destination $toolkitDest -Force
+        Copy-Item -Path $currentScript -Destination $toolkitDestPath -Force
     }
     else {
         Write-Host "Warning: Could not determine current script path to copy." -ForegroundColor Yellow
     }
     
     # Update README.md with build info
-    $readmePath = "$toolkitDest\README.md"
+    $readmePath = Join-Path $toolkitDestPath "README.md"
     if (Test-Path $readmePath) {
         $readmeContent = Get-Content $readmePath -Raw
         $buildDate = Get-Date -Format "yyyy-MM-dd HH:mm"
@@ -963,7 +965,7 @@ if (Test-Path $toolkitSource) {
     Write-Host "Tiny11-Dev-Toolkit copied to desktop successfully!"
 }
 else {
-    Write-Host "Warning: Tiny11-Dev-Toolkit folder not found at $toolkitSource"
+    Write-Host "Warning: Tiny11-Dev-Toolkit folder not found at $toolkitSourcePath"
     Write-Host "Desktop toolkit will not be included."
 }
 
@@ -997,15 +999,15 @@ foreach ($hive in $hives) {
     }
 }
 Write-Host "Cleaning up image..."
-Repair-WindowsImage -Path $ScratchDisk\scratchdir -StartComponentCleanup -ResetBase
+Repair-WindowsImage -Path $scratchMountPath -StartComponentCleanup -ResetBase
 Write-Host "Cleanup complete."
 Write-Host ' '
 Write-Host "Unmounting image..."
-Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
+Dismount-WindowsImage -Path $scratchMountPath -Save
 
 # Define source/destination paths once and keep log output absolute
-$sourceWim = Get-AbsolutePath -PathValue "$ScratchDisk\tiny11\sources\install.wim"
-$exportedWim = Get-AbsolutePath -PathValue "$ScratchDisk\tiny11\sources\install2.wim"
+$sourceWim = $installWimPath
+$exportedWim = $exportInstallWimPath
 
 Write-Host "Exporting image (Index: $index)..."
 Write-Host "Source: $sourceWim"
@@ -1026,7 +1028,7 @@ if ($sourceSize -lt 1GB) {
 # Export with error checking
 Write-Host "Running DISM Export-Image..."
 try {
-    & Dism.exe /Export-Image /SourceImageFile:"$ScratchDisk\tiny11\sources\install.wim" /SourceIndex:$index /DestinationImageFile:"$ScratchDisk\tiny11\sources\install2.wim" /Compress:max
+    & Dism.exe /Export-Image /SourceImageFile:"$sourceWim" /SourceIndex:$index /DestinationImageFile:"$exportedWim" /Compress:max
     $dismExitCode = $LASTEXITCODE
     Write-Host "DISM Exit Code: $dismExitCode"
     if ($dismExitCode -ne 0) {
@@ -1056,20 +1058,20 @@ if ($exportedSize -lt 1GB) {
     exit 1
 }
 
-Remove-Item -Path "$ScratchDisk\tiny11\sources\install.wim" -Force | Out-Null
-Rename-Item -Path "$ScratchDisk\tiny11\sources\install2.wim" -NewName "install.wim" | Out-Null
+Remove-Item -Path $installWimPath -Force | Out-Null
+Rename-Item -Path $exportInstallWimPath -NewName "install.wim" | Out-Null
 Write-Host "Windows image completed. Continuing with boot.wim."
 Start-Sleep -Seconds 2
 Invoke-SafeClearHost
 Write-Host "Mounting boot image:"
-$wimFilePath = "$ScratchDisk\tiny11\sources\boot.wim" 
+$wimFilePath = $bootWimPath
 & takeown "/F" $wimFilePath | Out-Null
 & icacls $wimFilePath "/grant" "$($adminGroup.Value):(F)"
 Set-ItemProperty -Path $wimFilePath -Name IsReadOnly -Value $false
-Mount-WindowsImage -ImagePath $ScratchDisk\tiny11\sources\boot.wim -Index 2 -Path $ScratchDisk\scratchdir
+Mount-WindowsImage -ImagePath $bootWimPath -Index 2 -Path $scratchMountPath
 Write-Host "Loading registry..."
-reg load HKLM\zSOFTWARE $ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE
-reg load HKLM\zSYSTEM $ScratchDisk\scratchdir\Windows\System32\config\SYSTEM
+reg load HKLM\zSOFTWARE (Join-Path $scratchMountPath "Windows\System32\config\SOFTWARE")
+reg load HKLM\zSYSTEM (Join-Path $scratchMountPath "Windows\System32\config\SYSTEM")
 Write-Host "Bypassing system requirements(on the setup image):"
 # Only SYSTEM hive modifications are needed for WinPE/Setup bypass
 & 'reg' 'add' 'HKLM\zSYSTEM\Setup\LabConfig' '/v' 'BypassCPUCheck' '/t' 'REG_DWORD' '/d' '1' '/f' | Out-Null
@@ -1083,11 +1085,11 @@ Write-Host "Unmounting Registry..."
 reg unload HKLM\zSOFTWARE | Out-Null
 reg unload HKLM\zSYSTEM | Out-Null
 Write-Host "Unmounting image..."
-Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
+Dismount-WindowsImage -Path $scratchMountPath -Save
 Invoke-SafeClearHost
 Write-Host "The tiny11 Dev Edition image is now completed. Proceeding with the making of the ISO..."
 Write-Host "Copying unattended file for bypassing MS account on OOBE..."
-Copy-Item -Path "$PSScriptRoot\autounattend-dev.xml" -Destination "$ScratchDisk\tiny11\autounattend.xml" -Force | Out-Null
+Copy-Item -Path $autounattendSourcePath -Destination $isoAutounattendPath -Force | Out-Null
 Write-Host "Creating ISO image..."
 $ADKDepTools = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\$hostarchitecture\Oscdimg"
 $localOSCDIMGPath = "$PSScriptRoot\oscdimg.exe"
@@ -1121,12 +1123,12 @@ else {
 }
 
 # ISO filename generated at script start
-& "$OSCDIMG" '-m' '-o' '-u2' '-udfver102' "-bootdata:2#p0,e,b$ScratchDisk\tiny11\boot\etfsboot.com#pEF,e,b$ScratchDisk\tiny11\efi\microsoft\boot\efisys.bin" "$ScratchDisk\tiny11" "$PSScriptRoot\$isoFileName"
+& "$OSCDIMG" '-m' '-o' '-u2' '-udfver102' "-bootdata:2#p0,e,b$tiny11RootPath\boot\etfsboot.com#pEF,e,b$tiny11RootPath\efi\microsoft\boot\efisys.bin" $tiny11RootPath $isoOutputPath
 
 Write-Host ""
 Write-Host "============================================================================" -ForegroundColor Green
 Write-Host "  ISO created: $isoFileName" -ForegroundColor Green
-Write-Host "  Location: $(Get-AbsolutePath -PathValue "$PSScriptRoot\$isoFileName")" -ForegroundColor Green
+Write-Host "  Location: $isoOutputPath" -ForegroundColor Green
 Write-Host "============================================================================" -ForegroundColor Green
 Write-Host ""
 
@@ -1135,13 +1137,13 @@ Write-Host "Creation completed! Press any key to perform cleanup..."
 # Pause before cleanup
 cmd /c pause
 Write-Host "Performing Cleanup..."
-Remove-Item -Path "$ScratchDisk\tiny11" -Recurse -Force | Out-Null
-Remove-Item -Path "$ScratchDisk\scratchdir" -Recurse -Force | Out-Null
+Remove-Item -Path $tiny11RootPath -Recurse -Force | Out-Null
+Remove-Item -Path $scratchMountPath -Recurse -Force | Out-Null
 
 Write-Host ""
 Write-Host "============================================================================" -ForegroundColor Cyan
 Write-Host "  Build complete!" -ForegroundColor Cyan
-Write-Host "  Output ISO: $PSScriptRoot\$isoFileName" -ForegroundColor Cyan
+Write-Host "  Output ISO: $isoOutputPath" -ForegroundColor Cyan
 Write-Host "============================================================================" -ForegroundColor Cyan
 
 # Stop the transcript
