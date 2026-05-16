@@ -1,4 +1,4 @@
-﻿﻿# Tiny11 Dev Edition
+﻿# Tiny11 Dev Edition
 
 > 专为开发者设计的精简 Windows 11 镜像构建工具
 
@@ -161,6 +161,27 @@ powershell -ExecutionPolicy Bypass -File .\tiny11maker-dev-build.ps1 -ScratchDis
 | 附加 | PowerShell-HowTo | SMB1 / ExecutionPolicy / Telnet 等指南与脚本 |
 
 每个模块都附带 README.md 说明文档；`PowerShell-HowTo` 提供可直接执行的 `.ps1` 示例脚本。
+
+---
+
+## PostTiny
+
+`PostTiny` 是与 `tiny11maker-dev-build.ps1` 配套的在线后处理工具，适用于已经用官方原版镜像完成安装的系统。
+
+它提供：
+
+- 执行 `tiny11-dev` 预置应用清理
+- 扫描现有 `Provisioned Appx` 并选择性删除
+- 执行 `tiny11-dev` 预置设置
+- 一键执行预置清理与预置设置
+
+启动方式：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\PostTiny\Invoke-PostTiny.ps1
+```
+
+> 说明：`PostTiny` 主要作用于当前在线系统；`boot.wim` 与安装阶段绕过逻辑不在其处理范围内。
 
 ---
 
